@@ -1,3 +1,4 @@
+import os
 import re
 import io
 import csv
@@ -15,6 +16,8 @@ SPECIAL_DISCOUNT_TIERS = {
     3: 0.90,  # Special Bundle of 3 → Price * 0.90
 }
 DEFAULT_DISCOUNT = 0.0
+
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(__file__), "sample_data", "master_sku.csv")
 
 
 # ── Core Logic ──
@@ -155,12 +158,27 @@ st.divider()
 col_file, col_skus = st.columns([1, 2])
 
 with col_file:
-    st.subheader("1. Master SKU CSV")
-    master_file = st.file_uploader(
-        "Upload CSV with columns: sku, mrp, cogs, price",
-        type=["csv"],
-        key="master",
+    st.subheader("1. Master SKU Data")
+
+    master_option = st.radio(
+        "Choose data source",
+        ["Use default master data", "Upload CSV"],
+        horizontal=True,
     )
+
+    master_file = None
+    if master_option == "Upload CSV":
+        master_file = st.file_uploader(
+            "Upload CSV with columns: sku, mrp, cogs, price",
+            type=["csv"],
+            key="master",
+        )
+
+    if master_option == "Use default master data" and os.path.exists(DEFAULT_CSV_PATH):
+        default_df = pd.read_csv(DEFAULT_CSV_PATH)
+        st.caption(f"Loaded {len(default_df)} SKUs from default data")
+        with st.expander("Preview default data"):
+            st.dataframe(default_df, use_container_width=True, hide_index=True)
 
 with col_skus:
     st.subheader("2. Bundle SKUs")
@@ -170,6 +188,7 @@ with col_skus:
         placeholder="e.g. 1209SI1526CB1185CC, 1071DM1527CB",
     )
 
+    special_input = ""
     with st.expander("Special SKUs (optional)"):
         st.caption("Uses Price-based pricing: Price × 0.95 (Bundle of 2), Price × 0.90 (Bundle of 3)")
         special_input = st.text_area(
@@ -181,12 +200,18 @@ with col_skus:
 
 st.divider()
 
-# ── Calculate ──
-can_calculate = master_file is not None and bundle_input.strip() != ""
+# ── Determine if ready ──
+has_master = (master_option == "Use default master data" and os.path.exists(DEFAULT_CSV_PATH)) or \
+             (master_option == "Upload CSV" and master_file is not None)
+can_calculate = has_master and bundle_input.strip() != ""
 
+# ── Calculate ──
 if st.button("Calculate Bundles", type="primary", disabled=not can_calculate, use_container_width=True):
     try:
-        master = parse_master_csv(master_file)
+        if master_option == "Upload CSV":
+            master = parse_master_csv(master_file)
+        else:
+            master = parse_master_csv(DEFAULT_CSV_PATH)
     except ValueError as e:
         st.error(str(e))
         st.stop()
