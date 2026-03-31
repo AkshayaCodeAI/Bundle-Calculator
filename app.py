@@ -31,19 +31,25 @@ def parse_master_csv(file) -> dict[str, dict]:
     df = pd.read_csv(file)
     df.columns = df.columns.str.strip().str.lower()
 
-    required = {"sku", "mrp", "cogs", "price"}
+    required = {"sku", "mrp", "cogs"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Master CSV missing columns: {missing}")
 
+    has_price = "price" in df.columns
+    df = df.dropna(subset=["sku", "mrp", "cogs"])
     df["sku"] = df["sku"].astype(str).str.strip().str.upper()
+    df = df[df["sku"].str.match(r"^[A-Z0-9]+$")]
+
     master = {}
     for _, row in df.iterrows():
-        master[row["sku"]] = {
+        entry = {
             "mrp": float(row["mrp"]),
             "cogs": float(row["cogs"]),
-            "price": float(row["price"]),
         }
+        if has_price:
+            entry["price"] = float(row["price"])
+        master[row["sku"]] = entry
     return master
 
 
@@ -69,10 +75,15 @@ def calculate_bundles(master, bundles, special_set=None):
         num_parts = len(parts)
         is_special = bundle_sku in special_set
 
-        if is_special:
+        if is_special and all("price" in master[p] for p in parts):
             total_price = sum(master[p]["price"] for p in parts)
             multiplier = SPECIAL_DISCOUNT_TIERS.get(num_parts, 1.0)
             price = round(total_price * multiplier, 2)
+        elif is_special:
+            warnings.append(f"'{bundle_sku}' marked special but master has no price column — using regular pricing")
+            is_special = False
+            discount = DISCOUNT_TIERS.get(num_parts, DEFAULT_DISCOUNT)
+            price = round(total_mrp * (1 - discount), 2)
         else:
             discount = DISCOUNT_TIERS.get(num_parts, DEFAULT_DISCOUNT)
             price = round(total_mrp * (1 - discount), 2)
@@ -176,9 +187,10 @@ with col_file:
 
     if master_option == "Use default master data" and os.path.exists(DEFAULT_CSV_PATH):
         default_df = pd.read_csv(DEFAULT_CSV_PATH)
-        st.caption(f"Loaded {len(default_df)} SKUs from default data")
+        default_df = default_df.dropna(subset=["sku", "mrp", "cogs"])
+        st.success(f"Loaded {len(default_df)} SKUs from default data")
         with st.expander("Preview default data"):
-            st.dataframe(default_df, use_container_width=True, hide_index=True)
+            st.dataframe(default_df, use_container_width=True, hide_index=True, height=300)
 
 with col_skus:
     st.subheader("2. Bundle SKUs")
