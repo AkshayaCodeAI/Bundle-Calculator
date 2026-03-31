@@ -21,10 +21,34 @@ DEFAULT_CSV_PATH = os.path.join(os.path.dirname(__file__), "sample_data", "maste
 
 
 # ── Core Logic ──
-def split_bundle_sku(bundle_sku: str) -> list[str]:
+def split_bundle_sku(bundle_sku: str, known_skus: set[str] = None) -> list[str]:
+    """Split a concatenated bundle SKU into individual parts.
+
+    Uses known master SKUs for accurate matching (handles SKUs ending in digits
+    like 1323WL1). Falls back to regex if no master list provided.
+    """
     if not bundle_sku or not isinstance(bundle_sku, str):
         return []
-    return re.findall(r"\d+[A-Z]+", bundle_sku.strip())
+
+    sku = bundle_sku.strip().upper()
+
+    if known_skus:
+        parts = []
+        remaining = sku
+        while remaining:
+            matched = False
+            for length in range(len(remaining), 0, -1):
+                candidate = remaining[:length]
+                if candidate in known_skus:
+                    parts.append(candidate)
+                    remaining = remaining[length:]
+                    matched = True
+                    break
+            if not matched:
+                return []
+        return parts
+
+    return re.findall(r"\d+[A-Z]+\d*", sku)
 
 
 def parse_master_csv(file) -> dict[str, dict]:
@@ -58,8 +82,10 @@ def calculate_bundles(master, bundles, special_set=None):
     warnings = []
     special_set = special_set or set()
 
+    known_skus = set(master.keys())
+
     for bundle_sku in bundles:
-        parts = split_bundle_sku(bundle_sku)
+        parts = split_bundle_sku(bundle_sku, known_skus)
 
         if not parts:
             warnings.append(f"Skipped '{bundle_sku}' — no valid SKU parts found")
