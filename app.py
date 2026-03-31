@@ -21,6 +21,11 @@ DEFAULT_CSV_PATH = os.path.join(os.path.dirname(__file__), "sample_data", "maste
 
 
 # ── Core Logic ──
+def clean_sku_string(s: str) -> str:
+    """Remove invisible unicode characters and keep only alphanumeric chars."""
+    return re.sub(r"[^A-Z0-9]", "", s.strip().upper())
+
+
 def split_bundle_sku(bundle_sku: str, known_skus: set[str] = None) -> list[str]:
     """Split a concatenated bundle SKU into individual parts.
 
@@ -30,7 +35,9 @@ def split_bundle_sku(bundle_sku: str, known_skus: set[str] = None) -> list[str]:
     if not bundle_sku or not isinstance(bundle_sku, str):
         return []
 
-    sku = bundle_sku.strip().upper()
+    sku = clean_sku_string(bundle_sku)
+    if not sku:
+        return []
 
     if known_skus:
         parts = []
@@ -88,7 +95,7 @@ def calculate_bundles(master, bundles, special_set=None):
         parts = split_bundle_sku(bundle_sku, known_skus)
 
         if not parts:
-            warnings.append(f"Skipped '{bundle_sku}' — no valid SKU parts found")
+            warnings.append(f"Skipped '{bundle_sku}' — could not match to known SKUs (check for typos)")
             continue
 
         missing = [p for p in parts if p not in master]
@@ -255,9 +262,9 @@ if st.button("Calculate Bundles", type="primary", disabled=not can_calculate, us
         st.stop()
 
     bundles = [
-        s.strip().upper()
+        clean_sku_string(s)
         for s in bundle_input.strip().replace("\n", ",").split(",")
-        if s.strip()
+        if clean_sku_string(s)
     ]
 
     special_set = set()
